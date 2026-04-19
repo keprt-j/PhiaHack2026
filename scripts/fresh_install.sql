@@ -1,5 +1,6 @@
--- PhiaHack — full reset: drop app tables and recreate a single clean schema.
--- Run in Supabase SQL Editor (or psql). Then run seed_fresh.sql.
+-- PhiaHack — full reset: drop app tables and recreate the current schema (single source of truth).
+-- Run in Supabase SQL Editor (or psql). Then run seed_fresh.sql (and optional seed_core_community_posts / seed_mock_communities).
+-- No separate migration files: new environments use this script only.
 -- WARNING: Destroys all data in these tables.
 
 -- ---------------------------------------------------------------------------
@@ -77,6 +78,60 @@ CREATE TABLE public.outfit_candidates (
 CREATE INDEX idx_outfit_candidates_tags ON public.outfit_candidates USING GIN (style_tags);
 CREATE INDEX idx_outfit_candidates_brand ON public.outfit_candidates (brand_name);
 CREATE INDEX idx_outfit_candidates_source ON public.outfit_candidates (source_type);
+CREATE INDEX idx_outfit_candidates_image_hash ON public.outfit_candidates (image_hash)
+  WHERE image_hash IS NOT NULL;
+
+-- Item swipe: token-AND match over catalog text (see lib/ranking/item-match-fetch.ts)
+CREATE OR REPLACE FUNCTION public.match_outfit_candidates_by_item_query(search_q text, result_limit int DEFAULT 450)
+RETURNS SETOF public.outfit_candidates
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  WITH
+  raw_toks AS (
+    SELECT trim(t) AS piece
+    FROM unnest(string_to_array(lower(regexp_replace(coalesce(search_q, ''), '[^a-zA-Z0-9\s''-]', ' ', 'g')), ' ')) AS t
+  ),
+  tokens AS (
+    SELECT DISTINCT regexp_replace(piece, '[^a-z0-9-]+', '', 'g') AS tok
+    FROM raw_toks
+    WHERE length(regexp_replace(piece, '[^a-z0-9-]+', '', 'g')) >= 2
+      AND regexp_replace(piece, '[^a-z0-9-]+', '', 'g') NOT IN (
+        'the','a','an','for','and','or','with','in','on','at','to','of','my','your','some','any','looking','find','want'
+      )
+  ),
+  tok_count AS (SELECT count(*)::int AS n FROM tokens),
+  occ AS (
+    SELECT
+      oc.id,
+      lower(
+        coalesce(oc.title, '') || ' ' || coalesce(oc.description, '') || ' ' ||
+        coalesce((SELECT string_agg(lower(x), ' ') FROM unnest(oc.style_tags) AS x), '') || ' ' ||
+        coalesce(oc.classifier_output::text, '')
+      ) AS hay
+    FROM public.outfit_candidates oc
+  )
+  SELECT oc.*
+  FROM public.outfit_candidates oc
+  INNER JOIN occ ON occ.id = oc.id
+  CROSS JOIN tok_count tc
+  WHERE tc.n > 0
+    AND NOT EXISTS (
+      SELECT 1
+      FROM tokens tok
+      WHERE occ.hay NOT LIKE '%' || tok.tok || '%'
+    )
+  ORDER BY oc.freshness_score DESC NULLS LAST
+  LIMIT result_limit;
+$$;
+
+COMMENT ON FUNCTION public.match_outfit_candidates_by_item_query(text, int) IS
+  'Item swipe: rows where every token from search_q appears in title/description/tags/classifier text.';
+
+GRANT EXECUTE ON FUNCTION public.match_outfit_candidates_by_item_query(text, int) TO service_role;
+GRANT EXECUTE ON FUNCTION public.match_outfit_candidates_by_item_query(text, int) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.match_outfit_candidates_by_item_query(text, int) TO anon;
 
 CREATE TABLE public.community_members (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -88,7 +143,7 @@ CREATE TABLE public.community_members (
 
 CREATE TABLE public.posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   community_id UUID REFERENCES public.communities(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   content TEXT,
