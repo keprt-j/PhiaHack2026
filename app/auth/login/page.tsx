@@ -68,7 +68,7 @@ function LoginForm() {
 
   return (
     <MobileAppFrame innerClassName="flex flex-col">
-      <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div className="flex min-h-0 flex-1 flex-col bg-transparent">
       <header className="shrink-0 p-3 sm:p-4">
         <Link
           href="/"

@@ -6,12 +6,15 @@ import { AnimatePresence, motion } from "framer-motion"
 import { SwipeCard, SwipeButtons } from "./swipe-card"
 import { ProfileGeneratingSplash } from "./profile-generating-splash"
 import { MobileAppFrame } from "./mobile-app-frame"
+import { HubBottomNav } from "./hub-bottom-nav"
 import { splitProfileIntoNotes, StyleProfileReveal } from "./style-notes"
 import type { Community, Outfit, Post } from "@/lib/types"
-import { Sparkles, ArrowRight, Loader2, RotateCcw, X, LogIn } from "lucide-react"
+import { Sparkles, ArrowRight, Loader2, RotateCcw, X, LogIn, Undo2 } from "lucide-react"
 
 const TARGET_SWIPES = 12
 const SESSION_STORAGE_KEY = "phia.swipe.session"
+/** How long the last swipe can be reverted (ms). */
+const UNDO_WINDOW_MS = 8000
 
 /** Dev only: pauses Gemini + Google Search for web image discovery (local server flag). */
 function DevGoogleSearchToggle() {
@@ -98,11 +101,19 @@ interface TasteDiscoveryProps {
   onComplete: (handoff: ProfileHandoff) => void
   unlimited?: boolean
   onExit?: () => void
+  /** Show the same bottom nav as Feed/Shop so Discover is reachable while swiping. */
+  showHubNav?: boolean
 }
 
 type Phase = "loading" | "swiping" | "profileLoading" | "done"
 
-export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }: TasteDiscoveryProps) {
+export function TasteDiscovery({
+  userId,
+  onComplete,
+  unlimited = false,
+  onExit,
+  showHubNav = false,
+}: TasteDiscoveryProps) {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>("loading")
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -117,7 +128,16 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
   /** Drives AnimatePresence exit direction for the top card (must update before queue pops). */
   const [swipeExitDirection, setSwipeExitDirection] = useState<"left" | "right" | "super">("right")
   const swipeInFlight = useRef(false)
+  const undoInFlight = useRef(false)
   const refreshedSwipeBatch = useRef(0)
+  const [swipeBusy, setSwipeBusy] = useState(false)
+  const [undoBusy, setUndoBusy] = useState(false)
+  /** Snapshot to restore after a successful swipe commit (server + local queue aligned). */
+  const [pendingUndo, setPendingUndo] = useState<{
+    queueBefore: Outfit[]
+    swipeCountBefore: number
+    expiresAt: number
+  } | null>(null)
 
   useEffect(() => {
     // Decode off the gesture path: next paint, not synchronously with drag updates.
@@ -134,7 +154,19 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
 
   useEffect(() => {
     refreshedSwipeBatch.current = 0
+    setPendingUndo(null)
   }, [sessionId])
+
+  useEffect(() => {
+    if (!pendingUndo) return
+    const ms = pendingUndo.expiresAt - Date.now()
+    if (ms <= 0) {
+      setPendingUndo(null)
+      return
+    }
+    const t = window.setTimeout(() => setPendingUndo(null), ms)
+    return () => window.clearTimeout(t)
+  }, [pendingUndo])
 
   useEffect(() => {
     let cancelled = false
@@ -205,6 +237,7 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
     clearStoredSession()
     setHandoff(null)
     setError(null)
+    setPendingUndo(null)
     setSwipeCount(0)
     setQueue([])
     setSessionId(null)
@@ -279,7 +312,7 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
       setHandoff({
         style_name: "Your style",
         profile_prompt:
-          "Your style blends the looks you engaged with—refined through quick swipes. Explore communities to go deeper.",
+          "Your line is still forming—lean into what feels right on the rack and let the through-line emerge. Communities are a good place to stress-test the vibe.",
         profileTags: [],
         recommendedCommunities: [],
         initialFeedPosts: [],
@@ -288,6 +321,41 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
       })
     }
   }, [sessionId, guestSessionId, userId])
+
+  const handleUndo = useCallback(async () => {
+    if (!sessionId || phase !== "swiping" || !pendingUndo) return
+    if (swipeInFlight.current || undoInFlight.current) return
+    if (Date.now() > pendingUndo.expiresAt) return
+
+    const snapshot = pendingUndo
+    undoInFlight.current = true
+    setUndoBusy(true)
+    try {
+      const res = await fetch("/api/swipes/event/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          guestSessionId: userId ? undefined : guestSessionId ?? undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Undo failed")
+
+      const revertedCount =
+        typeof data.swipeCount === "number" ? data.swipeCount : snapshot.swipeCountBefore
+      setSwipeCount(revertedCount)
+      setQueue(snapshot.queueBefore)
+      refreshedSwipeBatch.current = Math.floor(revertedCount / 5)
+      setPendingUndo(null)
+      setSwipeExitDirection("right")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Undo failed")
+    } finally {
+      undoInFlight.current = false
+      setUndoBusy(false)
+    }
+  }, [sessionId, phase, pendingUndo, guestSessionId, userId])
 
   const handleSwipe = useCallback(
     (direction: "left" | "right" | "super") => {
@@ -301,6 +369,7 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
       const prevCount = swipeCount
 
       swipeInFlight.current = true
+      setSwipeBusy(true)
       setSwipeExitDirection(direction)
       setSwipeCount((c) => c + 1)
       setQueue((q) => (q.length ? q.slice(1) : q))
@@ -332,6 +401,16 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
             return rest
           })
 
+          if (data.done) {
+            setPendingUndo(null)
+          } else {
+            setPendingUndo({
+              queueBefore: prevQueue,
+              swipeCountBefore: prevCount,
+              expiresAt: Date.now() + UNDO_WINDOW_MS,
+            })
+          }
+
           if (unlimited && userId && sessionId) {
             const batch = Math.floor(nextCount / 5)
             if (batch > 0 && batch > refreshedSwipeBatch.current) {
@@ -355,13 +434,15 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
           setError(e instanceof Error ? e.message : "Swipe failed")
           setSwipeCount(prevCount)
           setQueue(prevQueue)
+          setPendingUndo(null)
         } finally {
           swipeInFlight.current = false
+          setSwipeBusy(false)
         }
       })()
       return true
     },
-    [queue, sessionId, phase, swipeCount, guestSessionId, userId, runSummarize],
+    [queue, sessionId, phase, swipeCount, guestSessionId, userId, unlimited, runSummarize],
   )
 
   const currentOutfit = queue[0]
@@ -510,8 +591,8 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
 
   return (
     <>
-      <MobileAppFrame innerClassName="flex flex-col">
-        <div className="relative flex min-h-0 flex-1 flex-col">
+      <MobileAppFrame innerClassName="flex min-h-0 flex-1 flex-col !overflow-hidden !pb-0">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="relative z-[1] shrink-0 px-3 pb-1 pt-1">
             <div className="mb-1.5 flex items-end justify-between gap-2">
               <h1 className="text-sm font-semibold leading-tight tracking-tight text-foreground">Discover</h1>
@@ -575,10 +656,24 @@ export function TasteDiscovery({ userId, onComplete, unlimited = false, onExit }
               </div>
             </div>
             <div className="shrink-0 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
+              <div className="mb-1 flex min-h-[2rem] items-center justify-center">
+                {pendingUndo && !swipeBusy ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleUndo()}
+                    disabled={undoBusy || Date.now() > pendingUndo.expiresAt}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" aria-hidden />
+                    Undo
+                  </button>
+                ) : null}
+              </div>
               <SwipeButtons onSwipe={handleSwipe} variant="bar" />
             </div>
           </div>
         </div>
+        {showHubNav ? <HubBottomNav /> : null}
       </MobileAppFrame>
       {process.env.NODE_ENV === "development" && <DevGoogleSearchToggle />}
     </>

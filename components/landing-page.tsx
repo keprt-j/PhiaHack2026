@@ -3,20 +3,16 @@
 import Link from "next/link"
 import { motion } from "framer-motion"
 import { ArrowRight, Layers, Sparkles, Users } from "lucide-react"
+import { BrandLogo } from "@/components/brand-logo"
 import { MobileAppFrame } from "@/components/mobile-app-frame"
 
 export function LandingPage() {
   return (
     <MobileAppFrame innerClassName="flex flex-col">
       <div className="flex min-h-0 flex-1 flex-col">
-      <header className="sticky top-0 z-50 border-b border-border/60 bg-background/90 backdrop-blur-md">
+      <header className="glass-nav sticky top-0 z-50">
         <div className="mx-auto flex max-w-full items-center justify-between gap-3 px-3 py-2.5 sm:px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary">
-              <span className="text-lg font-bold text-primary-foreground">S</span>
-            </div>
-            <span className="text-lg font-bold tracking-tight text-foreground sm:text-xl">StyleSwipe</span>
-          </Link>
+          <BrandLogo href="/" variant="marketing" />
           <nav className="flex items-center gap-2 sm:gap-3">
             <Link
               href="/auth/login"

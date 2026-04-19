@@ -101,14 +101,14 @@ export function GetTheOutfit({ postId, hasImage }: { postId: string; hasImage: b
 
   if (!hasImage) {
     return (
-      <div className="rounded-2xl border border-border bg-muted/30 px-4 py-6 text-center">
+      <div className="glass-card rounded-2xl px-4 py-6 text-center">
         <p className="text-sm text-muted-foreground">Add a photo to this post to get shopping ideas for the look.</p>
       </div>
     )
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-card px-4 py-5 shadow-sm">
+    <div className="glass-card rounded-2xl px-4 py-5">
       <div className="mb-4 flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
           <ShoppingBag className="h-5 w-5" />

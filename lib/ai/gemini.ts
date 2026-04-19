@@ -399,7 +399,7 @@ export async function synthesizeStyleProfileStage2(input: {
   swipeSummary: string
 }): Promise<StyleProfileOutput> {
   const model = getModel()
-  const prompt = `${STYLIST_SYSTEM}\n\nSwipe summary:\n${input.swipeSummary}`
+  const prompt = `${STYLIST_SYSTEM}\n\nPreference notes:\n${input.swipeSummary}`
 
   if (!model) {
     return deterministicProfile(input.swipeSummary)
@@ -416,9 +416,12 @@ export async function synthesizeStyleProfileStage2(input: {
 }
 
 function deterministicProfile(summary: string): StyleProfileOutput {
+  const body = summary.trim().slice(0, 1200)
   return {
     style_name: "Your curated mix",
-    profile_prompt: `Your swipe selections suggest a directional, exploratory style mix. ${summary.slice(0, 1200)}`,
+    profile_prompt: body
+      ? `You're drawn to a mix that keeps shifting—here's what keeps showing up: ${body}`
+      : "Your taste is still wide open—lean into silhouettes and palettes until a clear direction emerges.",
     traits: {
       exploration: 0.7,
       formality: 0.45,
@@ -427,6 +430,6 @@ function deterministicProfile(summary: string): StyleProfileOutput {
     preferred_brands: [],
     disliked_brands: [],
     confidence: 0.55,
-    rationale: "Heuristic summary (Gemini unavailable or parse failed).",
+    rationale: "Fallback profile (model unavailable or parse failed).",
   }
 }

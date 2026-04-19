@@ -1,10 +1,18 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Geist, Geist_Mono, Outfit } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
+import { Toaster } from '@/components/ui/toaster'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const _geist = Geist({ subsets: ["latin"] })
+const _geistMono = Geist_Mono({ subsets: ["latin"] })
+/** Round, minimal logo / wordmark — applied via `.font-brand` */
+const brandFont = Outfit({
+  subsets: ["latin"],
+  variable: "--font-brand",
+  display: "swap",
+  weight: ["500", "600", "700"],
+})
 
 export const metadata: Metadata = {
   title: 'StyleSwipe - Discover Your Style',
@@ -35,9 +43,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
+    <html lang="en" className={brandFont.variable}>
       <body className="font-sans antialiased">
         {children}
+        <Toaster />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

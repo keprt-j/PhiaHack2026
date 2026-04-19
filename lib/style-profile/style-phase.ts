@@ -81,7 +81,6 @@ async function appendJournal(admin: Admin, sessionId: string, entry: JournalEntr
     console.error("[style-phase] appendJournal update", upErr)
     return
   }
-  console.log("tomato")
 }
 
 function mergeGuidance(

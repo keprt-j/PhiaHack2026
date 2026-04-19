@@ -25,15 +25,15 @@ export function MobileAppFrame({ children, innerClassName = "" }: MobileAppFrame
   }
 
   return (
-    <div className="relative flex min-h-[100dvh] w-full items-center justify-center bg-background px-3 py-5 md:bg-muted/45 md:py-10 md:px-6">
+    <div className="relative flex min-h-[100dvh] w-full items-center justify-center bg-transparent px-3 py-5 md:py-10 md:px-6">
       <div
-        className="pointer-events-none absolute inset-0 hidden md:block bg-[radial-gradient(ellipse_90%_55%_at_50%_18%,color-mix(in_oklch,var(--accent)_10%,transparent),transparent_60%)]"
+        className="pointer-events-none absolute inset-0 hidden md:block bg-[radial-gradient(ellipse_90%_55%_at_50%_18%,color-mix(in_oklch,var(--accent)_14%,transparent),transparent_62%)]"
         aria-hidden
       />
 
       <div
         className={cn(
-          "relative z-10 flex shrink-0 flex-col overflow-hidden rounded-[2rem] border border-border/70 bg-background shadow-[0_32px_100px_-28px_rgba(0,0,0,0.42)] ring-1 ring-black/[0.05] dark:border-border/50 dark:shadow-[0_32px_100px_-24px_rgba(0,0,0,0.65)] dark:ring-white/[0.06] md:rounded-[2.75rem]",
+          "glass-device relative z-10 flex shrink-0 flex-col overflow-hidden rounded-[2rem] ring-1 ring-white/70 dark:ring-cyan-200/15 md:rounded-[2.75rem]",
         )}
         style={shellStyle}
       >
@@ -51,8 +51,18 @@ export function MobileAppFrame({ children, innerClassName = "" }: MobileAppFrame
           </div>
         </div>
 
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-accent/[0.09] via-transparent to-transparent" aria-hidden />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/22 to-transparent md:top-[3.25rem]" aria-hidden />
+        <div
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(165deg,rgba(255,255,255,0.5)_0%,transparent_42%,rgba(34,211,238,0.07)_100%)] dark:bg-[linear-gradient(165deg,rgba(255,255,255,0.06)_0%,transparent_45%,rgba(34,211,238,0.06)_100%)]"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_20%_15%,rgba(167,139,250,0.14),transparent_55%)] dark:bg-[radial-gradient(ellipse_90%_70%_at_20%_15%,rgba(167,139,250,0.12),transparent_55%)]"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/85 to-transparent dark:via-white/35 md:top-[3.25rem]"
+          aria-hidden
+        />
 
         <div
           className={cn(

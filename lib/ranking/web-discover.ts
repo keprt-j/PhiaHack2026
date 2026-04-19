@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto"
 import type { createServiceClient } from "@/lib/supabase/admin"
 import {
   discoverOutfitImagesFromWeb,
@@ -139,11 +138,14 @@ async function insertOne(admin: Admin, row: Enriched): Promise<{ ok: true } | { 
   const merged = gemini.length ? gemini : seedTags.length ? seedTags : ["discovered"]
   const tags = [...new Set([...merged, "web", "full-look", "export-ready"])].slice(0, 16)
 
-  const sourceUrlKey = `web-gemini:${randomUUID()}`
   const via =
     row.rawUrl.includes("images.unsplash.com") || row.rawUrl.includes("plus.unsplash.com")
       ? "unsplash_api"
       : "gemini_google_search"
+
+  /** Real fetchable URL so “View original” / tabs work — not a `web-gemini:` placeholder. */
+  const sourceUrl =
+    row.rawUrl.trim().startsWith("http") ? row.rawUrl.trim() : `https://${row.rawUrl.trim().replace(/^\/\//, "")}`
 
   const { error } = await admin.from("outfit_candidates").insert({
     title,
@@ -153,7 +155,7 @@ async function insertOne(admin: Admin, row: Enriched): Promise<{ ok: true } | { 
     price_range: null,
     style_tags: tags,
     category: "casual",
-    source_url: sourceUrlKey,
+    source_url: sourceUrl,
     source_type: "web_gemini",
     source_platform: "web",
     source_context: {
@@ -232,14 +234,35 @@ export async function kickOffWebDiscover(admin: Admin, opts: KickOffOpts): Promi
   const theme = buildTheme(opts)
   const source = (process.env.WEB_DISCOVER_SOURCE ?? "unsplash").toLowerCase()
   const unsplashCount = Number(process.env.WEB_DISCOVER_UNSPLASH_COUNT ?? "15")
+  const itemSearch = Boolean(opts.query?.trim())
+  const perPage = itemSearch ? Math.max(unsplashCount, 22) : unsplashCount
 
   let found: WebDiscoveredItem[] = []
+
+  /**
+   * Typed item searches need Google-backed image discovery; Unsplash keyword search alone
+   * often misses color + garment combos. Try Gemini first when the global source is Unsplash.
+   */
+  if (
+    itemSearch &&
+    source !== "gemini_search" &&
+    process.env.ITEM_DISCOVER_GEMINI_FIRST !== "0" &&
+    process.env.GEMINI_API_KEY &&
+    !getDevGoogleSearchDisabled()
+  ) {
+    found = await discoverOutfitImagesFromWeb(theme, {})
+    if (found.length) {
+      const inserted = await persistWebDiscoverCandidates(admin, found)
+      console.log(`[web-discover] item Gemini-first inserted ${inserted} of ${found.length}`)
+      if (inserted > 0) return
+    }
+  }
 
   if (source === "gemini_search") {
     const discoverOpts: DiscoverOpts = {}
     found = await discoverOutfitImagesFromWeb(theme, discoverOpts)
   } else {
-    found = await discoverOutfitPhotosFromUnsplash(theme, { perPage: unsplashCount })
+    found = await discoverOutfitPhotosFromUnsplash(theme, { perPage })
     if (!found.length && process.env.WEB_DISCOVER_FALLBACK_GEMINI === "1") {
       if (getDevGoogleSearchDisabled()) {
         console.warn("[web-discover] Unsplash empty; Gemini Search fallback skipped (dev toggle)")

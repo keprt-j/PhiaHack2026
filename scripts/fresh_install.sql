@@ -95,6 +95,11 @@ CREATE TABLE public.posts (
   image_url TEXT,
   outfit_tags TEXT[] DEFAULT '{}',
   upvotes INTEGER DEFAULT 0,
+  reaction_love INTEGER NOT NULL DEFAULT 0,
+  reaction_cry INTEGER NOT NULL DEFAULT 0,
+  reaction_neutral INTEGER NOT NULL DEFAULT 0,
+  reaction_wow INTEGER NOT NULL DEFAULT 0,
+  reaction_fire INTEGER NOT NULL DEFAULT 0,
   comments_count INTEGER DEFAULT 0,
   is_trending BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -104,7 +109,7 @@ CREATE TABLE public.post_votes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   post_id UUID NOT NULL REFERENCES public.posts(id) ON DELETE CASCADE,
-  vote_type TEXT NOT NULL CHECK (vote_type IN ('up', 'down')),
+  vote_type TEXT NOT NULL CHECK (vote_type IN ('love', 'cry', 'neutral', 'wow', 'fire')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (user_id, post_id)
 );
@@ -155,6 +160,8 @@ CREATE TABLE public.swipe_sessions (
   style_journal JSONB DEFAULT '[]'::jsonb,
   style_guidance JSONB,
   reddit_profile_seed TEXT,
+  item_search_query TEXT,
+  item_deck_order UUID[],
   CONSTRAINT swipe_sessions_user_or_guest CHECK (
     user_id IS NOT NULL OR guest_session_id IS NOT NULL
   )
@@ -166,10 +173,14 @@ CREATE UNIQUE INDEX idx_swipe_sessions_guest
 
 CREATE INDEX idx_swipe_sessions_user ON public.swipe_sessions (user_id);
 
--- At most one in-progress deck per logged-in user (avoids duplicate sessions on double-fetch / Strict Mode)
-CREATE UNIQUE INDEX idx_swipe_sessions_one_open_user
+-- One open "style" deck and one open "item search" deck per user (duplicate fetches / Strict Mode)
+CREATE UNIQUE INDEX idx_swipe_sessions_one_open_default
   ON public.swipe_sessions (user_id)
-  WHERE user_id IS NOT NULL AND completed_at IS NULL;
+  WHERE user_id IS NOT NULL AND completed_at IS NULL AND item_search_query IS NULL;
+
+CREATE UNIQUE INDEX idx_swipe_sessions_one_open_item
+  ON public.swipe_sessions (user_id)
+  WHERE user_id IS NOT NULL AND completed_at IS NULL AND item_search_query IS NOT NULL;
 
 CREATE TABLE public.swipe_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -285,7 +296,90 @@ CREATE POLICY "Community taxonomy is viewable by everyone"
   ON public.community_taxonomy FOR SELECT USING (true);
 
 -- ---------------------------------------------------------------------------
--- 4. Auth: auto-create profile row
+-- 4. Post reactions: keep aggregate columns in sync (SECURITY DEFINER bypasses RLS)
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.sync_post_reaction_counts()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  pid uuid;
+  d_love int := 0;
+  d_cry int := 0;
+  d_neutral int := 0;
+  d_wow int := 0;
+  d_fire int := 0;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    pid := NEW.post_id;
+    CASE NEW.vote_type
+      WHEN 'love' THEN d_love := 1;
+      WHEN 'cry' THEN d_cry := 1;
+      WHEN 'neutral' THEN d_neutral := 1;
+      WHEN 'wow' THEN d_wow := 1;
+      WHEN 'fire' THEN d_fire := 1;
+      ELSE NULL;
+    END CASE;
+  ELSIF TG_OP = 'DELETE' THEN
+    pid := OLD.post_id;
+    CASE OLD.vote_type
+      WHEN 'love' THEN d_love := -1;
+      WHEN 'cry' THEN d_cry := -1;
+      WHEN 'neutral' THEN d_neutral := -1;
+      WHEN 'wow' THEN d_wow := -1;
+      WHEN 'fire' THEN d_fire := -1;
+      ELSE NULL;
+    END CASE;
+  ELSE
+    pid := NEW.post_id;
+    CASE OLD.vote_type
+      WHEN 'love' THEN d_love := d_love - 1;
+      WHEN 'cry' THEN d_cry := d_cry - 1;
+      WHEN 'neutral' THEN d_neutral := d_neutral - 1;
+      WHEN 'wow' THEN d_wow := d_wow - 1;
+      WHEN 'fire' THEN d_fire := d_fire - 1;
+      ELSE NULL;
+    END CASE;
+    CASE NEW.vote_type
+      WHEN 'love' THEN d_love := d_love + 1;
+      WHEN 'cry' THEN d_cry := d_cry + 1;
+      WHEN 'neutral' THEN d_neutral := d_neutral + 1;
+      WHEN 'wow' THEN d_wow := d_wow + 1;
+      WHEN 'fire' THEN d_fire := d_fire + 1;
+      ELSE NULL;
+    END CASE;
+  END IF;
+
+  UPDATE public.posts
+  SET
+    reaction_love = GREATEST(0, reaction_love + d_love),
+    reaction_cry = GREATEST(0, reaction_cry + d_cry),
+    reaction_neutral = GREATEST(0, reaction_neutral + d_neutral),
+    reaction_wow = GREATEST(0, reaction_wow + d_wow),
+    reaction_fire = GREATEST(0, reaction_fire + d_fire),
+    upvotes = GREATEST(
+      0,
+      reaction_love + d_love + reaction_cry + d_cry + reaction_neutral + d_neutral + reaction_wow + d_wow + reaction_fire + d_fire
+    )
+  WHERE id = pid;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_post_votes_reaction_counts
+  AFTER INSERT OR UPDATE OR DELETE ON public.post_votes
+  FOR EACH ROW
+  EXECUTE FUNCTION public.sync_post_reaction_counts();
+
+-- ---------------------------------------------------------------------------
+-- 5. Auth: auto-create profile row
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()

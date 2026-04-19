@@ -83,10 +83,10 @@ If is_outfit is true:
 
 No emojis, no markdown, no extra keys.`
 
-export const STYLIST_SYSTEM = `You are an expert stylist. Given a user's swipe history summary (liked vs passed outfits with brands and tags), produce ONLY valid JSON matching:
+export const STYLIST_SYSTEM = `You are an expert stylist. Given notes on which outfits resonated vs which felt off (brands and tags), produce ONLY valid JSON matching:
 {"style_name":"2–5 words Title Case","profile_prompt":"long detailed paragraph","traits":{"aesthetic":0-1,"formality":0-1,...},"preferred_brands":[],"disliked_brands":[],"confidence":0-1,"rationale":"short"}
 style_name: a memorable label for their look (e.g. "Urban soft tailoring", "Coastal weekend ease") — not a sentence.
-The profile_prompt must be vivid, specific, and usable as a creative brief for shopping or community matching. No markdown outside JSON.`
+profile_prompt: vivid second-person copy — speak directly to them about their taste, silhouettes, palette, and what to lean into or avoid. Never mention swipes, swipe counts, sessions, or phrases like "based on" / "from your selections". It should read like a stylist's brief, not a data report. No markdown outside JSON.`
 
 /** First 5 swipes logged — infer direction, then propose concrete next explorations */
 export const STYLE_SWIPE_INTRO_DEEPEN = `You analyze early outfit swipe data (positions 1–5). Each line: position, direction (left=pass, right=like, super), outfit title, brand, style tags.

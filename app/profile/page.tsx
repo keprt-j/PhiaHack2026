@@ -111,9 +111,9 @@ export default function ProfilePage() {
           </section>
 
           <section className="rounded-xl border border-border bg-card p-4">
-            <h2 className="mb-2 text-center font-semibold text-foreground">Swipe Through Clothes</h2>
+            <h2 className="mb-2 text-center font-semibold text-foreground">Find a piece</h2>
             <p className="mb-6 text-center text-sm text-muted-foreground">
-              Keep exploring looks. Your taste profile keeps adapting in the background.
+              Search for something you need — boots, a coat, a shirt — and swipe looks that include it.
             </p>
             <div className="flex flex-col items-center gap-3">
               <Link

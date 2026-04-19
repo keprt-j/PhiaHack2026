@@ -9,6 +9,7 @@ import { PostCard } from "@/components/post-card"
 import { GetTheOutfit } from "@/components/get-the-outfit"
 import { MobileAppFrame } from "@/components/mobile-app-frame"
 import type { Community, Post, Profile } from "@/lib/types"
+import type { PostReactionId } from "@/lib/post-reactions"
 
 export default function PostDetailPage() {
   const params = useParams()
@@ -20,6 +21,7 @@ export default function PostDetailPage() {
   const [post, setPost] = useState<Post | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [myReaction, setMyReaction] = useState<PostReactionId | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -83,6 +85,27 @@ export default function PostDetailPage() {
     }
   }, [id, supabase])
 
+  useEffect(() => {
+    if (!userId || !post?.id) {
+      setMyReaction(null)
+      return
+    }
+    let cancelled = false
+    void supabase
+      .from("post_votes")
+      .select("vote_type")
+      .eq("post_id", post.id)
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return
+        setMyReaction((data?.vote_type as PostReactionId | undefined) ?? null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [userId, post?.id, supabase])
+
   if (loading) {
     return (
       <MobileAppFrame innerClassName="flex min-h-0 flex-1 flex-col !overflow-hidden !pb-0">
@@ -114,7 +137,7 @@ export default function PostDetailPage() {
   return (
     <MobileAppFrame innerClassName="flex min-h-0 flex-1 flex-col !overflow-hidden !pb-0">
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-        <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur-md sm:px-4">
+        <header className="glass-nav sticky top-0 z-10 flex shrink-0 items-center gap-2 px-3 py-2.5 sm:px-4">
           <button
             type="button"
             onClick={() => router.back()}
@@ -132,7 +155,13 @@ export default function PostDetailPage() {
         </header>
 
         <div className="mx-auto w-full max-w-xl flex-1 px-2 py-3 sm:px-3">
-          <PostCard post={post} userId={userId} linkToPost={false} variant="detail" />
+          <PostCard
+            post={post}
+            userId={userId}
+            initialReaction={myReaction}
+            linkToPost={false}
+            variant="detail"
+          />
           <div id="outfit-shop" className="mt-6 scroll-mt-24">
             <GetTheOutfit postId={post.id} hasImage={Boolean(post.image_url?.trim())} />
           </div>

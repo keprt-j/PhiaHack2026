@@ -1,3 +1,5 @@
+import type { PostReactionCounts, PostReactionId } from "@/lib/post-reactions"
+
 export interface Profile {
   id: string
   username: string | null
@@ -23,6 +25,8 @@ export interface Outfit {
   source_platform?: string | null
   /** e.g. `web_gemini` when found via Gemini + Google Search */
   source_type?: string | null
+  /** Original product or editorial URL when ingested (retail / social / web). */
+  source_url?: string | null
   is_trending: boolean
   likes_count: number
   created_at: string
@@ -54,7 +58,7 @@ export interface CommunityMember {
   joined_at: string
 }
 
-export interface Post {
+export interface Post extends PostReactionCounts {
   id: string
   user_id: string
   community_id: string | null
@@ -62,6 +66,7 @@ export interface Post {
   content: string | null
   image_url: string | null
   outfit_tags: string[]
+  /** Sum of all reaction counts (trending / legacy). */
   upvotes: number
   comments_count: number
   is_trending: boolean
@@ -75,7 +80,7 @@ export interface PostVote {
   id: string
   user_id: string
   post_id: string
-  vote_type: 'up' | 'down'
+  vote_type: PostReactionId
   created_at: string
 }
 

@@ -2,13 +2,17 @@ import { after, NextResponse } from "next/server"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/admin"
-import { candidateRowToOutfit } from "@/lib/candidates/map-to-outfit"
+import { candidateRowToOutfit, type CandidateRow } from "@/lib/candidates/map-to-outfit"
 import {
   parseStylePickGuidance,
   pickNextCandidates,
   type SwipeSignal,
 } from "@/lib/ranking/next-candidate"
-import { loadCandidatePoolForSignals } from "@/lib/ranking/load-pool"
+import {
+  fetchItemDeckRowsOrdered,
+  loadCandidatePoolForSignals,
+  rankItemDeck,
+} from "@/lib/ranking/load-pool"
 import { discoverKickOptsFromSignals, kickOffWebDiscover } from "@/lib/ranking/web-discover"
 import { runStyleIntroPhase, runStyleRefinePhase } from "@/lib/style-profile/style-phase"
 import { logApi } from "@/lib/telemetry"
@@ -31,7 +35,7 @@ async function assertSessionAccess(
 ) {
   const { data: sess, error } = await admin
     .from("swipe_sessions")
-    .select("id, user_id, guest_session_id, target_count")
+    .select("id, user_id, guest_session_id, target_count, item_search_query, item_deck_order")
     .eq("id", sessionId)
     .single()
 
@@ -118,47 +122,55 @@ export async function POST(req: Request) {
         }
       }) ?? []
 
-    /** Heavy Gemini work runs after the response is flushed so swipe latency stays low. */
-    if (body.position === 3) {
-      after(() => {
-        void kickOffWebDiscover(admin, discoverKickOptsFromSignals(signals)).catch((e) =>
-          console.warn("[swipes/event] web-discover (prefetch post-intro)", e),
-        )
-      })
-    }
-    if (body.position === 5) {
-      after(() => {
-        void runStyleIntroPhase(admin, body.sessionId, signals).catch((e) =>
-          console.error("[swipes/event] runStyleIntroPhase", e),
-        )
-        void kickOffWebDiscover(admin, discoverKickOptsFromSignals(signals)).catch((e) =>
-          console.warn("[swipes/event] web-discover (post-intro signals)", e),
-        )
-      })
-    }
-    if (body.position === 10 || body.position === 15) {
-      after(() => {
-        void (async () => {
-          try {
-            await runStyleRefinePhase(admin, body.sessionId, body.position, signals)
-          } catch (e) {
-            console.error("[swipes/event] runStyleRefinePhase", e)
-          }
+    const itemQuery = (access.sess.item_search_query as string | null)?.trim() || null
+    const itemDeckOrder = (access.sess.item_deck_order as string[] | null) ?? null
+    const isItemSession = Boolean(itemQuery)
+
+    /** Style-profile Gemini phases — skipped for item-first sessions (ignore legacy outfit signals). */
+    if (!isItemSession) {
+      if (body.position === 3) {
+        after(() => {
           void kickOffWebDiscover(admin, discoverKickOptsFromSignals(signals)).catch((e) =>
-            console.warn("[swipes/event] web-discover (post-refine)", e),
+            console.warn("[swipes/event] web-discover (prefetch post-intro)", e),
           )
-        })()
-      })
+        })
+      }
+      if (body.position === 5) {
+        after(() => {
+          void runStyleIntroPhase(admin, body.sessionId, signals).catch((e) =>
+            console.error("[swipes/event] runStyleIntroPhase", e),
+          )
+          void kickOffWebDiscover(admin, discoverKickOptsFromSignals(signals)).catch((e) =>
+            console.warn("[swipes/event] web-discover (post-intro signals)", e),
+          )
+        })
+      }
+      if (body.position === 10 || body.position === 15) {
+        after(() => {
+          void (async () => {
+            try {
+              await runStyleRefinePhase(admin, body.sessionId, body.position, signals)
+            } catch (e) {
+              console.error("[swipes/event] runStyleRefinePhase", e)
+            }
+            void kickOffWebDiscover(admin, discoverKickOptsFromSignals(signals)).catch((e) =>
+              console.warn("[swipes/event] web-discover (post-refine)", e),
+            )
+          })()
+        })
+      }
     }
 
     const targetCount = Number(access.sess.target_count ?? 12)
     const isUnlimited = targetCount <= 0
 
     if (!isUnlimited && body.position >= targetCount) {
-      try {
-        await runStyleRefinePhase(admin, body.sessionId, targetCount, signals)
-      } catch (e) {
-        console.error("[swipes/event] runStyleRefinePhase final", e)
+      if (!isItemSession) {
+        try {
+          await runStyleRefinePhase(admin, body.sessionId, targetCount, signals)
+        } catch (e) {
+          console.error("[swipes/event] runStyleRefinePhase final", e)
+        }
       }
 
       await admin
@@ -196,10 +208,25 @@ export async function POST(req: Request) {
     /** Next card’s 1-based swipe index in this session (matches `pickNextCandidates` intro filter). */
     const upcomingSwipeSlot = body.position + 2
 
-    const rows = await loadCandidatePoolForSignals(admin, signals, {
-      deckPosition: upcomingSwipeSlot,
-      guidance: pickGuidance,
-    })
+    let rows: CandidateRow[]
+    if (itemQuery) {
+      if (itemDeckOrder?.length) {
+        rows = await fetchItemDeckRowsOrdered(admin, itemDeckOrder, seen)
+      } else {
+        const ranked = await rankItemDeck(admin, itemQuery)
+        await admin
+          .from("swipe_sessions")
+          .update({ item_deck_order: ranked.orderedIds })
+          .eq("id", body.sessionId)
+        rows = await fetchItemDeckRowsOrdered(admin, ranked.orderedIds, seen)
+      }
+    } else {
+      rows = await loadCandidatePoolForSignals(admin, signals, {
+        deckPosition: upcomingSwipeSlot,
+        guidance: pickGuidance,
+      })
+    }
+
     const next = pickNextCandidates(rows, seen, signals, 1, {
       deckPosition: upcomingSwipeSlot,
       guidance: pickGuidance,

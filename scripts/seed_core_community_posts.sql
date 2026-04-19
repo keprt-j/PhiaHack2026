@@ -292,6 +292,11 @@ INSERT INTO public.posts (
   image_url,
   outfit_tags,
   upvotes,
+  reaction_love,
+  reaction_cry,
+  reaction_neutral,
+  reaction_wow,
+  reaction_fire,
   comments_count,
   is_trending
 )
@@ -303,6 +308,11 @@ SELECT
   v.image_url,
   v.tags,
   v.upvotes,
+  v.upvotes,
+  0,
+  0,
+  0,
+  0,
   v.comments_count,
   v.is_trending
 FROM v

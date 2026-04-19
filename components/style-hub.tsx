@@ -1,21 +1,18 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useRouter } from "next/navigation"
+import useSWR from "swr"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Flame,
   Clock,
   TrendingUp,
   Sparkles,
-  Plus,
   Search,
   Bell,
   User,
   LogOut,
-  House,
-  Compass,
-  MessageCircle,
   LayoutGrid,
   Users,
   X,
@@ -26,6 +23,9 @@ import { CommunitySidebar } from "./community-sidebar"
 import { Post, Community } from "@/lib/types"
 import { authorHandleForPost } from "@/lib/utils"
 import Link from "next/link"
+import { BrandLogo } from "@/components/brand-logo"
+import { HubBottomNav } from "@/components/hub-bottom-nav"
+import type { PostReactionId } from "@/lib/post-reactions"
 
 type FeedTab = "all" | "trending" | "new" | "for-you"
 
@@ -50,7 +50,6 @@ export function StyleHub({
   profileBrief,
 }: StyleHubProps) {
   const router = useRouter()
-  const pathname = usePathname()
   const supabase = useMemo(() => createClient(), [])
   const [hubView, setHubView] = useState<HubView>("feed")
   const [activeTab, setActiveTab] = useState<FeedTab>("all")
@@ -122,14 +121,40 @@ export function StyleHub({
     }
   })
 
+  const postIdsFingerprint = useMemo(
+    () =>
+      posts
+        .map((p) => p.id)
+        .sort()
+        .join(","),
+    [posts],
+  )
+
+  const { data: myReactions } = useSWR(
+    userId && postIdsFingerprint ? ["post-votes", userId, postIdsFingerprint] : null,
+    async () => {
+      const ids = posts.map((p) => p.id)
+      if (!ids.length) return new Map<string, PostReactionId>()
+      const { data, error } = await supabase
+        .from("post_votes")
+        .select("post_id, vote_type")
+        .eq("user_id", userId!)
+        .in("post_id", ids)
+      if (error) throw error
+      const m = new Map<string, PostReactionId>()
+      for (const row of data ?? []) {
+        m.set(row.post_id as string, row.vote_type as PostReactionId)
+      }
+      return m
+    },
+  )
+
   const tabs: { id: FeedTab; label: string; icon: typeof Flame }[] = [
     { id: "all", label: "All", icon: LayoutGrid },
     { id: "for-you", label: "For You", icon: Sparkles },
     { id: "trending", label: "Trending", icon: Flame },
     { id: "new", label: "New", icon: Clock },
   ]
-
-  const navActive = (path: string) => pathname === path
 
   useEffect(() => {
     scrollMilestonesRef.current = 0
@@ -178,19 +203,12 @@ export function StyleHub({
   }, [sortedPosts, userId, hubView])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {/* Reddit-style top bar (mobile-first) */}
-      <header className="sticky top-0 z-50 shrink-0 border-b border-border bg-background/95 backdrop-blur-md">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+      {/* Feed top bar (mobile-first) */}
+      <header className="glass-nav sticky top-0 z-50 shrink-0">
         <div className="flex h-12 items-center gap-2 px-3 sm:px-4">
           <div className="flex min-w-0 w-[4.5rem] shrink-0 items-center justify-start sm:w-auto">
-            <Link href={userId ? "/feed" : "/"} className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary">
-                <span className="text-sm font-bold text-primary-foreground">S</span>
-              </div>
-              <span className="hidden text-[17px] font-bold tracking-tight text-foreground sm:inline">
-                StyleSwipe
-              </span>
-            </Link>
+            <BrandLogo href={userId ? "/feed" : "/"} variant="compact" />
           </div>
 
           <h1 className="min-w-0 flex-1 truncate text-center text-[15px] font-semibold text-foreground sm:hidden">
@@ -205,14 +223,14 @@ export function StyleHub({
 
           <div className="hidden min-w-0 flex-1 max-w-md sm:block">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Posts, tags, communities, authors…"
                 autoComplete="off"
-                className="w-full rounded-full border-none bg-secondary py-2 pl-9 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                className="glass-well w-full rounded-full border border-white/30 py-2 pl-9 pr-9 text-sm text-foreground shadow-inner shadow-white/10 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent dark:border-white/10"
                 aria-label="Search"
               />
               {searchQuery ? (
@@ -222,7 +240,7 @@ export function StyleHub({
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
                   aria-label="Clear search"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               ) : null}
             </div>
@@ -232,37 +250,37 @@ export function StyleHub({
             <button
               type="button"
               onClick={() => setMobileSearchOpen((o) => !o)}
-              className={`rounded-full p-2 transition-colors hover:bg-secondary sm:hidden ${
+              className={`rounded-full p-1.5 transition-colors hover:bg-secondary sm:hidden ${
                 mobileSearchOpen || searchQuery ? "text-foreground" : "text-muted-foreground"
               }`}
               aria-expanded={mobileSearchOpen}
               aria-label={mobileSearchOpen ? "Close search" : "Search"}
             >
-              {mobileSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+              {mobileSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
             </button>
             <button
               type="button"
-              className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-secondary"
+              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary"
               aria-label="Notifications"
             >
-              <Bell className="h-5 w-5" />
+              <Bell className="h-4 w-4" />
             </button>
             {userId ? (
               <>
                 <button
                   type="button"
                   onClick={() => void handleSignOut()}
-                  className="hidden rounded-full p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:block"
+                  className="hidden rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:block"
                   aria-label="Sign out"
                   title="Sign out"
                 >
-                  <LogOut className="h-5 w-5" />
+                  <LogOut className="h-4 w-4" />
                 </button>
                 <Link
                   href="/profile"
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-secondary"
                 >
-                  <User className="h-4 w-4 text-secondary-foreground" />
+                  <User className="h-3.5 w-3.5 text-secondary-foreground" />
                 </Link>
               </>
             ) : (
@@ -277,9 +295,9 @@ export function StyleHub({
         </div>
 
         {mobileSearchOpen && (
-          <div className="border-b border-border/60 px-3 pb-2 sm:hidden">
+          <div className="border-b border-white/25 px-3 pb-2 dark:border-white/10 sm:hidden">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
                 value={searchQuery}
@@ -287,7 +305,7 @@ export function StyleHub({
                 placeholder="Posts, tags, communities…"
                 autoComplete="off"
                 autoFocus
-                className="w-full rounded-full border-none bg-secondary py-2.5 pl-9 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                className="glass-well w-full rounded-full border border-white/30 py-2.5 pl-9 pr-9 text-sm text-foreground shadow-inner shadow-white/10 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent dark:border-white/10"
                 aria-label="Search"
               />
               {searchQuery ? (
@@ -297,7 +315,7 @@ export function StyleHub({
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-secondary"
                   aria-label="Clear search"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               ) : null}
             </div>
@@ -305,14 +323,14 @@ export function StyleHub({
         )}
 
         {/* Feed vs Communities */}
-        <div className="flex border-t border-border/60 px-3 py-2 sm:px-4">
-          <div className="mx-auto flex w-full max-w-xl rounded-full bg-secondary/80 p-1 ring-1 ring-border/60">
+        <div className="flex border-t border-white/25 px-3 py-2 dark:border-white/10 sm:px-4">
+          <div className="mx-auto flex w-full max-w-xl rounded-full border border-white/35 bg-white/40 p-1 shadow-inner shadow-white/15 backdrop-blur-md dark:border-white/10 dark:bg-white/[0.07]">
             <button
               type="button"
               onClick={() => setHubView("feed")}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-[13px] font-semibold transition-colors ${
                 hubView === "feed"
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-white/85 text-foreground shadow-md shadow-black/5 dark:bg-white/15 dark:shadow-black/40"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -324,7 +342,7 @@ export function StyleHub({
               onClick={() => setHubView("communities")}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-[13px] font-semibold transition-colors ${
                 hubView === "communities"
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-white/85 text-foreground shadow-md shadow-black/5 dark:bg-white/15 dark:shadow-black/40"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -336,7 +354,7 @@ export function StyleHub({
 
         {/* All / For you / … — only on Feed */}
         {hubView === "feed" && (
-          <div className="flex gap-2 overflow-x-auto border-t border-border/60 px-3 py-2 [scrollbar-width:none] sm:px-4 [&::-webkit-scrollbar]:hidden">
+          <div className="flex gap-2 overflow-x-auto border-t border-white/25 px-3 py-2 [scrollbar-width:none] dark:border-white/10 sm:px-4 [&::-webkit-scrollbar]:hidden">
             {tabs.map((tab) => {
               const Icon = tab.icon
               const active = activeTab === tab.id
@@ -371,7 +389,7 @@ export function StyleHub({
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="sticky top-0 z-10 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur-sm sm:px-4"
+                  className="glass-nav sticky top-0 z-10 border-t-0 px-3 py-2.5 sm:px-4"
                 >
                   <div className="mx-auto flex w-full max-w-xl items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -392,9 +410,16 @@ export function StyleHub({
               <div className="mx-auto w-full max-w-xl space-y-3 px-2 pb-3 pt-1 sm:px-3">
                 <AnimatePresence mode="popLayout">
                   {sortedPosts.length > 0 ? (
-                    sortedPosts.map((post) => <PostCard key={post.id} post={post} userId={userId} />)
+                    sortedPosts.map((post) => (
+                      <PostCard
+                        key={post.id}
+                        post={post}
+                        userId={userId}
+                        initialReaction={myReactions?.get(post.id) ?? null}
+                      />
+                    ))
                   ) : searchNorm ? (
-                    <div className="rounded-2xl border border-dashed border-border bg-muted/30 px-4 py-12 text-center">
+                    <div className="glass-card rounded-2xl border-dashed border-white/45 px-4 py-12 text-center dark:border-white/15">
                       <p className="text-sm font-medium text-foreground">No posts match your search</p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         Try a different keyword or clear the search bar.
@@ -406,7 +431,7 @@ export function StyleHub({
                       animate={{ opacity: 1 }}
                       className="flex flex-col items-center px-6 py-16 text-center"
                     >
-                      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
+                      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-white/35 bg-white/50 backdrop-blur-md dark:border-white/10 dark:bg-white/[0.08]">
                         <Sparkles className="h-8 w-8 text-muted-foreground" />
                       </div>
                       <h3 className="mb-2 text-lg font-semibold text-foreground">No posts yet</h3>
@@ -419,7 +444,7 @@ export function StyleHub({
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="rounded-2xl border border-border bg-muted/40 px-3 py-3"
+                    className="glass-card rounded-2xl px-3 py-3"
                   >
                     <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
                       <Sparkles className="h-4 w-4 shrink-0 text-accent" />
@@ -434,74 +459,21 @@ export function StyleHub({
             </div>
           ) : (
             <div className="mx-auto w-full max-w-xl px-2 pb-3 pt-1 sm:px-3">
-              {filteredCommunities.length === 0 && searchNorm ? (
-                <div className="rounded-2xl border border-dashed border-border bg-muted/30 px-4 py-12 text-center">
-                  <p className="text-sm font-medium text-foreground">No communities match your search</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Try another name or clear the search bar.</p>
-                </div>
-              ) : (
-                <CommunitySidebar
-                  communities={filteredCommunities}
-                  joinedCommunityIds={joinedCommunityIds}
-                  userId={userId}
-                  onCommunitySelect={handleCommunitySelect}
-                  selectedCommunity={selectedCommunity}
-                />
-              )}
+              <CommunitySidebar
+                communities={filteredCommunities}
+                joinedCommunityIds={joinedCommunityIds}
+                userId={userId}
+                onCommunitySelect={handleCommunitySelect}
+                selectedCommunity={selectedCommunity}
+                searchQuery={searchQuery}
+              />
             </div>
           )}
         </main>
 
       </div>
 
-      {/* Reddit-style bottom nav (mobile shell) */}
-      <nav
-        className="flex shrink-0 items-end justify-around border-t border-border bg-background/95 px-1 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md lg:hidden"
-        aria-label="Primary"
-      >
-        <Link
-          href="/feed"
-          className={`flex min-w-[3.5rem] flex-col items-center gap-0.5 pb-1 ${
-            navActive("/feed") ? "text-foreground" : "text-muted-foreground"
-          }`}
-        >
-          <House className={`h-6 w-6 ${navActive("/feed") ? "stroke-[2.5]" : ""}`} />
-          <span className="text-[10px] font-medium">Home</span>
-        </Link>
-        <Link
-          href="/discover"
-          className={`flex min-w-[3.5rem] flex-col items-center gap-0.5 pb-1 ${
-            navActive("/discover") ? "text-foreground" : "text-muted-foreground"
-          }`}
-        >
-          <Compass className="h-6 w-6" />
-          <span className="text-[10px] font-medium">Discover</span>
-        </Link>
-        <button
-          type="button"
-          className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-md"
-          aria-label="Create post"
-        >
-          <Plus className="h-6 w-6" />
-        </button>
-        <button
-          type="button"
-          className="flex min-w-[3.5rem] flex-col items-center gap-0.5 pb-1 text-muted-foreground"
-          aria-label="Inbox"
-        >
-          <MessageCircle className="h-6 w-6" />
-          <span className="text-[10px] font-medium">Inbox</span>
-        </button>
-        <Link
-          href="/profile"
-          className={`flex min-w-[3.5rem] flex-col items-center gap-0.5 pb-1 ${
-            navActive("/profile") ? "text-foreground" : "text-muted-foreground"
-          }`}
-        >
-          <User className="h-6 w-6" />
-          <span className="text-[10px] font-medium">You</span>
-        </Link>
-      </nav>
+      <HubBottomNav />
     </div>
   )
 }

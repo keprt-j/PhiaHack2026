@@ -284,7 +284,22 @@ post_user_ids AS (
     FROM post_seed
   ) x
 )
-INSERT INTO public.posts (user_id, community_id, title, content, image_url, outfit_tags, upvotes, comments_count, is_trending)
+INSERT INTO public.posts (
+  user_id,
+  community_id,
+  title,
+  content,
+  image_url,
+  outfit_tags,
+  upvotes,
+  reaction_love,
+  reaction_cry,
+  reaction_neutral,
+  reaction_wow,
+  reaction_fire,
+  comments_count,
+  is_trending
+)
 SELECT
   p.user_id,
   c.id,
@@ -292,7 +307,12 @@ SELECT
   p.content,
   p.image_url,
   p.tags,
-  (8 + ((row_number() OVER (ORDER BY p.title)) % 40))::int,
+  (8 + ((row_number() OVER (ORDER BY p.title)) % 40))::int AS upvotes,
+  (8 + ((row_number() OVER (ORDER BY p.title)) % 40))::int AS reaction_love,
+  0,
+  0,
+  0,
+  0,
   (1 + ((row_number() OVER (ORDER BY p.title)) % 9))::int,
   ((row_number() OVER (ORDER BY p.title)) % 3 = 0)
 FROM post_user_ids p
